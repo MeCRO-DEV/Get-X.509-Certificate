@@ -11,7 +11,3 @@ Screenshot:
 ![image](https://user-images.githubusercontent.com/57880343/177473477-e54f60ca-4ab2-4eb9-9c9f-40b6786096d7.png)
 ![image](https://user-images.githubusercontent.com/57880343/177472726-d824a887-98c2-4b1f-b355-5a563a023fba.png)
 ![image](https://user-images.githubusercontent.com/57880343/177472777-0afa023b-27d9-4733-a8b6-a7ba401a1387.png)
-
-The certificate:
-
-![image](https://user-images.githubusercontent.com/57880343/177473613-87b8afeb-e274-4153-b08c-94742cbbf7e0.png)
