@@ -100,3 +100,12 @@ $Base64PEM.AppendLine("-----END CERTIFICATE-----")
 $Base64PEM.ToString() | out-file "$ServerName.pem"
 
 Write-Host -Foreground Magenta "$ServerName.pem is ready."
+
+Write-Host -Foreground Yellow "=== 5. Generating CER file (Binary) ==="
+if($PSVersionTable.PSVersion.Major -lt 6) {
+    Set-Content -Path ".\$ServerName.cer" -Encoding Byte -Value $Cert.Export('Cert')
+} else {
+    Set-Content -Path ".\$ServerName.cer" -AsByteStream -Value $Cert.Export('Cert')
+}
+
+Write-Host -Foreground Magenta "$ServerName.cer is ready."
