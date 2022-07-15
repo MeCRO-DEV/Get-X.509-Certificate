@@ -1,9 +1,9 @@
-#########################################################
+##############################################################################
 # Retrieve SSL certificate from the server and save it
 # in PEM format
-# Author: David Wang  
-# usage: Get-X509.Cert.ps1 SERVER_NAME [PORT_NUMBER]
-#########################################################
+# usage: Get-X509.Cert.ps1 SERVER_NAME [PORT_NUMBER] [-SMTP] [-tv]
+# -tv : TLS version, possible value: SSLv2,SSLv3,TLSv10,TLSv11,TLSv12,TLSv13
+##############################################################################
 # The MIT License (MIT)
 #
 # Copyright (c) 2022, David Wang
@@ -27,8 +27,30 @@
 param (
     [Parameter(Mandatory=$true)]
     [string]$ServerName,
-    [int]$Port = 443
+    [int]$Port = 443,
+    [switch]$smtp,
+    [String]$tv # TLS version, possible value: SSLv2,SSLv3,TLSv10,TLSv11,TLSv12,TLSv13
 )
+
+[String]$Protocol = ""
+[string]$Filename = ""
+
+Switch ($tv) {
+    "SSLv2"   { $Protocol = [System.Security.Authentication.SslProtocols]::ssl2  }
+    "SSLv3"   { $Protocol = [System.Security.Authentication.SslProtocols]::ssl3  }
+    "TLSv10"  { $Protocol = [System.Security.Authentication.SslProtocols]::tls   }
+    "TLSv11"  { $Protocol = [System.Security.Authentication.SslProtocols]::tls11 }
+    "TLSv12"  { $Protocol = [System.Security.Authentication.SslProtocols]::tls12 }
+    "TLSv13"  { $Protocol = [System.Security.Authentication.SslProtocols]::tls13 }
+    default   { 
+        Write-Host -ForegroundColor Cyan "===========> Invalid SSL/TLS version $tv, defaulting to TLSv12."
+        $Protocol = [System.Security.Authentication.SslProtocols]::Tls12
+        $tv = "TLSv12"
+        Start-Sleep -Seconds 5
+    }
+}
+
+$Filename = $ServerName + "-$tv"
 
 # Dummy callback function, does nothing
 $Callback = { 
@@ -68,44 +90,142 @@ if(!$test.TcpTestSucceeded){
     $test | Format-List -Property *
 }
 
-Write-Host -Foreground Yellow "=== 3. SSL/TLS Handshake Test ==="
-$Cert = $null
-$TcpClient = New-Object -TypeName System.Net.Sockets.TcpClient
-
-$TcpClient.Connect($ServerName, $Port)
-$TcpStream = $TcpClient.GetStream()
-
-$SslStream = New-Object -TypeName System.Net.Security.SslStream -ArgumentList @($TcpStream, $true, $Callback)
-
-$SslStream.AuthenticateAsClient('')
-$Cert = $SslStream.RemoteCertificate
-$SslStream.Dispose()
-$TcpClient.Dispose()
-
-if ($Cert) {
-    if ($Cert -isnot [System.Security.Cryptography.X509Certificates.X509Certificate2]) {
-        $Cert = New-Object -TypeName System.Security.Cryptography.X509Certificates.X509Certificate2 -ArgumentList $Cert
+if($smtp.IsPresent){
+    Write-Host -Foreground Yellow "=== 3. TCP Handshake and SMPT Connection Test ==="
+    Write-Host "                "
+    Write-Host("Connecting to $ServerName $Port") -ForegroundColor Green
+    $socket = new-object System.Net.Sockets.TcpClient($ServerName, $Port)
+    $stream = $socket.GetStream()
+    $streamWriter = new-object System.IO.StreamWriter($stream)
+    $streamReader = new-object System.IO.StreamReader($stream)
+    $stream.ReadTimeout = 5000
+    $stream.WriteTimeout = 5000  
+    $streamWriter.AutoFlush = $true
+    $sslStream = New-Object System.Net.Security.SslStream($stream)
+    $sslStream.ReadTimeout = 5000
+    $sslStream.WriteTimeout = 5000       
+    $ConnectResponse = $streamReader.ReadLine();
+    Write-Host($ConnectResponse)
+    if(!$ConnectResponse.StartsWith("220")){
+        throw "Error connecting to the SMTP Server"
     }
-    $Cert | Format-List -Property *
+
+    #Send "EHLO"
+    $Sendingdomain = "gmail.com"
+    Write-Host(("EHLO " + $Sendingdomain)) -ForegroundColor Green
+    $streamWriter.WriteLine(("EHLO " + $Sendingdomain));
+
+    $response = @()
+
+    Try {
+        while($streamReader.EndOfStream -ne $true) {
+            $ehloResponse = $streamReader.ReadLine();
+            Write-Host($ehloResponse)
+            $response += $ehloResponse
+        }
+    } catch {
+
+        If ($response -match "STARTTLS")
+        {
+            Write-Host("STARTTLS") -ForegroundColor Green
+            $streamWriter.WriteLine("STARTTLS");
+            $startTLSResponse = $streamReader.ReadLine();
+            Write-Host($startTLSResponse)
+
+            Write-Host "                "
+            Write-Host -Foreground Yellow "=== 4. Retrieving Certificate from Remote Server ==="
+            $CertCollection = New-Object System.Security.Cryptography.X509Certificates.X509CertificateCollection
+            try {
+                $sslStream.AuthenticateAsClient($ServerName,$CertCollection,$Protocol,$false)
+            } catch {
+                Write-Host -ForegroundColor Red "The client and server cannot communicate, because they do not possess a common algorithm"
+                exit
+            }
+            
+            $Certificate = $sslStream.RemoteCertificate.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert)
+            $Cert = $sslStream.RemoteCertificate
+
+            $sslStream.RemoteCertificate | Format-List -Property *
+
+            Write-Host -Foreground Yellow "=== 5. Generating PEM file (Base64 Encoding) ==="
+            Write-Host "                 "
+            $StringBuilder = new-Object System.Text.StringBuilder
+            [void]$StringBuilder.AppendLine("-----BEGIN CERTIFICATE-----");
+            [void]$StringBuilder.AppendLine([System.Convert]::ToBase64String($certificate,[System.Base64FormattingOptions]::InsertLineBreaks))
+            [void]$StringBuilder.AppendLine("-----END CERTIFICATE-----")
+            $CertString = $StringBuilder.Tostring()
+            $CertString | out-file "$Filename.pem"
+    
+            $stream.Dispose()
+            $sslStream.Dispose()
+
+            Write-Host -Foreground Magenta "$Filename.pem is ready."
+
+            Write-Host "                "
+            Write-Host -Foreground Yellow "=== 6. Generating CER file (Binary) ==="
+            if($PSVersionTable.PSVersion.Major -lt 6) {
+                Set-Content -Path ".\$Filename.cer" -Encoding Byte -Value $Cert.Export('Cert')
+            } else {
+                Set-Content -Path ".\$Filename.cer" -AsByteStream -Value $Cert.Export('Cert')
+            }
+
+            Write-Host -Foreground Magenta "$Filename.cer is ready."
+        } else {
+            Write-Host "ERROR: No <STARTTLS> found" -ForegroundColor Red
+        }
+    }
 } else {
-    Write-Host -ForegroundColor Yellow "Invalid certificate received from SSL handshake."
+    Write-Host -Foreground Yellow "=== 3. SSL/TLS Handshake Test ==="
+
+    $Cert = $null
+    $TcpClient = New-Object -TypeName System.Net.Sockets.TcpClient
+
+    $TcpClient.Connect($ServerName, $Port)
+    $TcpStream = $TcpClient.GetStream()
+
+    $CertCollection = New-Object System.Security.Cryptography.X509Certificates.X509CertificateCollection
+    $SslStream = New-Object -TypeName System.Net.Security.SslStream -ArgumentList @($TcpStream, $true, $Callback)
+    try {
+        $sslStream.AuthenticateAsClient($ServerName,$CertCollection,$Protocol,$false)
+    } catch {
+        Write-Host -ForegroundColor Red "The client and server cannot communicate, because they do not possess a common algorithm"
+        exit
+    }
+
+    # $SslStream.AuthenticateAsClient('')
+    $Cert = $SslStream.RemoteCertificate
+    $SslStream.Dispose()
+    $TcpClient.Dispose()
+
+    if ($Cert) {
+        if ($Cert -isnot [System.Security.Cryptography.X509Certificates.X509Certificate2]) {
+            $Cert = New-Object -TypeName System.Security.Cryptography.X509Certificates.X509Certificate2 -ArgumentList $Cert
+        }
+        $Cert | Format-List -Property *
+    } else {
+        Write-Host -ForegroundColor Yellow "Invalid certificate received from SSL handshake."
+        exit
+    }
+
+    # Save the extacted certificate to a file
+    Write-Host -Foreground Yellow "=== 4. Generating PEM file (Base64 Encoding) ==="
+    $Base64PEM = new-object System.Text.StringBuilder
+    $Base64PEM.AppendLine("-----BEGIN CERTIFICATE-----")
+    $Base64PEM.AppendLine([System.Convert]::ToBase64String($Cert.RawData, 1))
+    $Base64PEM.AppendLine("-----END CERTIFICATE-----")
+    $Base64PEM.ToString() | out-file "$Filename.pem"
+
+    Write-Host -Foreground Magenta "$Filename.pem is ready."
+
+    Write-Host "                "
+    Write-Host -Foreground Yellow "=== 5. Generating CER file (Binary) ==="
+        if($PSVersionTable.PSVersion.Major -lt 6) {
+            Set-Content -Path ".\$Filename.cer" -Encoding Byte -Value $Cert.Export('Cert')
+        } else {
+            Set-Content -Path ".\$Filename.cer" -AsByteStream -Value $Cert.Export('Cert')
+        }
+
+    Write-Host -Foreground Magenta "$Filename.cer is ready."
 }
 
-# Save the extacted certificate to a file
-Write-Host -Foreground Yellow "=== 4. Generating PEM file (Base64 Encoding) ==="
-$Base64PEM = new-object System.Text.StringBuilder
-$Base64PEM.AppendLine("-----BEGIN CERTIFICATE-----")
-$Base64PEM.AppendLine([System.Convert]::ToBase64String($Cert.RawData, 1))
-$Base64PEM.AppendLine("-----END CERTIFICATE-----")
-$Base64PEM.ToString() | out-file "$ServerName.pem"
-
-Write-Host -Foreground Magenta "$ServerName.pem is ready."
-
-Write-Host -Foreground Yellow "=== 5. Generating CER file (Binary) ==="
-if($PSVersionTable.PSVersion.Major -lt 6) {
-    Set-Content -Path ".\$ServerName.cer" -Encoding Byte -Value $Cert.Export('Cert')
-} else {
-    Set-Content -Path ".\$ServerName.cer" -AsByteStream -Value $Cert.Export('Cert')
-}
-
-Write-Host -Foreground Magenta "$ServerName.cer is ready."
+Write-Host "                "
