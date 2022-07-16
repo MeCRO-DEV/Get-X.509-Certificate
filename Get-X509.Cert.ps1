@@ -1,9 +1,9 @@
-##############################################################################
+####################################################################################
 # Retrieve SSL certificate from the server and save it
 # in PEM format
-# usage: Get-X509.Cert.ps1 SERVER_NAME [PORT_NUMBER] [-SMTP] [-tv]
+# usage: Get-X509.Cert.ps1 SERVER_NAME [PORT_NUMBER] [-SMTP] [-tv PROTOCOL_VERSION]
 # -tv : TLS version, possible value: SSLv2,SSLv3,TLSv10,TLSv11,TLSv12,TLSv13
-##############################################################################
+####################################################################################
 # The MIT License (MIT)
 #
 # Copyright (c) 2022, David Wang
@@ -45,7 +45,7 @@ Switch ($tv) {
     default   { 
         Write-Host -ForegroundColor Cyan "===========> Invalid SSL/TLS version $tv, defaulting to TLSv12."
         $Protocol = [System.Security.Authentication.SslProtocols]::Tls12
-        $tv = "TLSv12"
+        $tv = "TLSv12" # Default protocol version is TLSv12
         Start-Sleep -Seconds 5
     }
 }
