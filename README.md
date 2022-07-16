@@ -3,7 +3,7 @@ Retrieve X.509 certificate from remote server
 
 This tool can download the X.509 certificate from remote server and save it to a file in PEM format.
 
-usage: Get-X509.Cert.ps1 SERVER_NAME [PORT_NUMBER] [-SMTP] [-tv]
+usage: Get-X509.Cert.ps1 SERVER_NAME [PORT_NUMBER] [-SMTP] [-tv PROTOCOL_VERSION]
 
        -tv   : TLS version, possible value: SSLv2,SSLv3,TLSv10,TLSv11,TLSv12,TLSv13
        
