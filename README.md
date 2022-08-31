@@ -1,7 +1,7 @@
 # Get-X.509-Certificate
 Retrieve X.509 certificate from remote server
 
-This tool can download the X.509 certificate from remote server and save it to a file in PEM format.
+This tool can download the X.509 certificate from remote server and save it to a file in PEM format. It can also extract the public key from the remote certificate.
 
 usage: Get-X509.Cert.ps1 SERVER_NAME [PORT_NUMBER] [-SMTP] [-tv PROTOCOL_VERSION]
 
