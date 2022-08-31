@@ -23,6 +23,7 @@
 # WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE 
 # SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.#>
 ###############################################################################################################
+#requires -version 5
 [CmdletBinding()]
 param (
     [Parameter(Mandatory=$true)]
@@ -228,4 +229,23 @@ if($smtp.IsPresent){
     Write-Host -Foreground Magenta "$Filename.cer is ready."
 }
 
-Write-Host "                "
+Write-Host "  "
+Write-Host -Foreground Yellow  "=== Final Step: Extract the public key ==="
+
+$loc = (Get-Location).ToString()
+$certFile = $loc + "\$Filename.pem"
+
+if($PSVersionTable.PSVersion.Major -ge 7){
+    $Cert = New-Object -TypeName System.Security.Cryptography.X509Certificates.X509Certificate2($certFile)
+} else {
+    $Cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2
+    $Cert.Import($certFile)
+}
+
+$key = $cert.GetPublicKeyString()
+Set-Content -Path ".\$Filename.PublicKey.txt" -Value $key
+Write-Host -Foreground Magenta "$Filename.PublicKey.txt is ready."
+Write-Host "  "
+Write-Host -Foreground Red "=== complete ==="
+Write-Host "  "
+Get-ChildItem -Path "$Filename*"
